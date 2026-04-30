@@ -1,182 +1,137 @@
 import discord
 from discord.ext import commands, tasks
-from datetime import datetime, date, timedelta
-import os
-import asyncio
+from discord import app_commands
+from datetime import datetime, date
+import os, asyncio
 
-from utils.nba_api import (
-    get_today_games, get_live_games, get_game_stats, get_week_games, get_games_for_date,
-    emoji, color, logo
-)
+from utils.nba_api import get_scoreboard, get_boxscore, get_week_schedule
 from utils.formatters import (
-    build_weekly_schedule, build_game_announcement,
-    build_live_score, build_boxscore, build_standings
+    build_weekly_embeds, build_game_announcement,
+    build_live_score, build_boxscore
 )
-from utils.nba_api import get_standings
 
 CHANNEL_MATCH = int(os.getenv("CHANNEL_NBA_MATCH", "0"))
 
-# Track live game states: game_id → last score tuple
-_live_states: dict[int, tuple] = {}
-_finished_ids: set[int]        = set()
-_announced_today: set[int]     = set()
+# State tracking
+_prev_scores: dict[str, tuple]  = {}   # game_id → (home_score, away_score, status_code)
+_announced:   set[str]          = set() # game_ids already announced
+_boxscored:   set[str]          = set() # game_ids already boxscored
+_week_posted: str               = ""    # last Monday date we posted the schedule
 
 
-class Match(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+class MatchCog(commands.Cog):
+    def __init__(self, bot):
         self.bot = bot
-        self.weekly_post.start()
-        self.live_tracker.start()
-        self.game_announcer.start()
+        self.score_loop.start()
+        self.weekly_loop.start()
 
     def cog_unload(self):
-        self.weekly_post.cancel()
-        self.live_tracker.cancel()
-        self.game_announcer.cancel()
+        self.score_loop.cancel()
+        self.weekly_loop.cancel()
 
-    # ── Every Monday 08:00 → post week schedule ──────────────────────────────
+    # ── Every 2 minutes: check scores, announce games, post boxscores ─────────
+
+    @tasks.loop(minutes=2)
+    async def score_loop(self):
+        ch = self.bot.get_channel(CHANNEL_MATCH)
+        if not ch:
+            return
+
+        games = await get_scoreboard()
+        if not games:
+            print("[Match] Scoreboard returned 0 games.")
+            return
+
+        for g in games:
+            gid    = g["id"]
+            code   = g["status_code"]   # 1=scheduled 2=live 3=final
+            h_s    = g["home_score"]
+            a_s    = g["away_score"]
+
+            # ── Announce game day (scheduled, not yet announced) ────────────
+            if code == 1 and gid not in _announced:
+                embed = build_game_announcement(g)
+                await ch.send(embed=embed)
+                _announced.add(gid)
+                await asyncio.sleep(1)
+
+            # ── Live: post score update only when score changes ─────────────
+            elif code == 2:
+                prev = _prev_scores.get(gid)
+                curr = (h_s, a_s, code)
+                if prev != curr:
+                    _prev_scores[gid] = curr
+                    embed = build_live_score(g)
+                    await ch.send(embed=embed)
+                    await asyncio.sleep(1)
+
+            # ── Final: post boxscore once ───────────────────────────────────
+            elif code == 3 and gid not in _boxscored:
+                _boxscored.add(gid)
+                bs = await get_boxscore(gid)
+                embeds = build_boxscore(g, bs)
+                await ch.send(content="**🏁  FIN DE MATCH !**", embeds=embeds[:4])
+
+                # Trigger standings refresh
+                await asyncio.sleep(5)
+                self.bot.dispatch("standings_update", g)
+                await asyncio.sleep(1)
+
+    @score_loop.before_loop
+    async def before_score(self):
+        await self.bot.wait_until_ready()
+
+    # ── Every Monday 08:00: post weekly schedule ──────────────────────────────
 
     @tasks.loop(minutes=1)
-    async def weekly_post(self):
+    async def weekly_loop(self):
+        global _week_posted
         now = datetime.now()
-        if now.weekday() == 0 and now.hour == 8 and now.minute == 0:
-            await self._post_weekly_schedule()
+        today_str = date.today().isoformat()
+        if now.weekday() == 0 and now.hour == 8 and now.minute == 0 and _week_posted != today_str:
+            _week_posted = today_str
+            await self._post_week()
 
-    @weekly_post.before_loop
+    @weekly_loop.before_loop
     async def before_weekly(self):
         await self.bot.wait_until_ready()
 
-    async def _post_weekly_schedule(self):
+    async def _post_week(self):
         ch = self.bot.get_channel(CHANNEL_MATCH)
         if not ch:
             return
-        games = await get_week_games()
-        # Group by date
-        by_day: dict[str, list] = {}
-        today = date.today()
-        for i in range(7):
-            by_day[(today + timedelta(days=i)).isoformat()] = []
-        for g in games:
-            d = g.get("_date") or date.today().isoformat()
-            if d in by_day:
-                by_day[d].append(g)
+        schedule = await get_week_schedule()
+        embeds = build_weekly_embeds(schedule)
+        for i in range(0, len(embeds), 10):
+            await ch.send(embeds=embeds[i:i+10])
+            await asyncio.sleep(1)
 
-        embeds = build_weekly_schedule(by_day)
-        await ch.send(embeds=embeds[:10])
+    # ── Slash commands ────────────────────────────────────────────────────────
 
-    # ── Every day, announce games a few minutes before they start ────────────
-
-    @tasks.loop(minutes=5)
-    async def game_announcer(self):
-        ch = self.bot.get_channel(CHANNEL_MATCH)
-        if not ch:
-            return
-        games = await get_today_games()
-        for g in games:
-            gid = g.get("id")
-            if gid in _announced_today:
-                continue
-            # Only announce scheduled games (not yet live or final)
-            status = g.get("status","")
-            if status and status != "Final" and ":" in str(status):
-                embed = build_game_announcement(g)
-                await ch.send(embed=embed)
-                _announced_today.add(gid)
-                await asyncio.sleep(1)
-
-    @game_announcer.before_loop
-    async def before_announcer(self):
-        await self.bot.wait_until_ready()
-
-    # ── Every 3 minutes → track live scores + post boxscore on finish ────────
-
-    @tasks.loop(minutes=3)
-    async def live_tracker(self):
-        ch = self.bot.get_channel(CHANNEL_MATCH)
-        if not ch:
-            return
-
-        live_games = await get_live_games()
-
-        for g in live_games:
-            gid    = g.get("id")
-            h_s    = g.get("home_team_score", 0) or 0
-            a_s    = g.get("visitor_team_score", 0) or 0
-            status = g.get("status","")
-
-            # Game just ended → post boxscore
-            if status == "Final" and gid not in _finished_ids:
-                _finished_ids.add(gid)
-                stats  = await get_game_stats(gid)
-                embeds = build_boxscore(g, stats)
-                await ch.send(content="**🏁 FIN DE MATCH !**", embeds=embeds[:4])
-
-                # Update standings for the affected conference
-                await asyncio.sleep(10)
-                await self._refresh_standings(g)
-                continue
-
-            # Live score update (only if score changed)
-            prev = _live_states.get(gid)
-            curr = (h_s, a_s)
-            if prev != curr:
-                _live_states[gid] = curr
-                embed = build_live_score(g)
-                await ch.send(embed=embed)
-
-    @live_tracker.before_loop
-    async def before_tracker(self):
-        await self.bot.wait_until_ready()
-
-    async def _refresh_standings(self, finished_game: dict):
-        """Post updated standings for the conference of the finished game."""
-        ch = self.bot.get_channel(int(os.getenv("CHANNEL_NBA_CLASSEMENT","0")))
-        if not ch:
-            return
-        h_abbr = (finished_game.get("home_team") or {}).get("abbreviation","")
-        from utils.nba_api import WEST
-        conf = "West" if h_abbr in WEST else "East"
-
-        standings = await get_standings()
-        embed = build_standings(standings, conf)
-        embed.title = f"🔄  CLASSEMENT MIS À JOUR — {'🌅 Western' if conf=='West' else '🌆 Eastern'} Conference"
-        await ch.send(embed=embed)
-
-    # ── Slash command: /nba_match ─────────────────────────────────────────────
-
-    @discord.app_commands.command(name="nba_match", description="📅 Matchs du jour + programme de la semaine")
+    @app_commands.command(name="nba_match", description="🏀 Scores et matchs du jour")
     async def nba_match(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        games = await get_today_games()
+        games = await get_scoreboard()
 
         if not games:
             embed = discord.Embed(
                 title="🏀 NBA — Matchs du jour",
-                description="> Aucun match aujourd'hui. 😴",
+                description="> Aucun match NBA aujourd'hui. 😴",
                 color=0x17408B, timestamp=datetime.utcnow()
             )
             return await interaction.followup.send(embed=embed)
 
-        embeds = [build_live_score(g) for g in games[:10]]
-        await interaction.followup.send(embeds=embeds)
+        embeds = [build_live_score(g) for g in games]
+        for i in range(0, min(len(embeds), 10), 10):
+            await interaction.followup.send(embeds=embeds[i:i+10])
 
-    # ── Slash command: /nba_week ──────────────────────────────────────────────
-
-    @discord.app_commands.command(name="nba_week", description="🗓️ Programme des 7 prochains jours")
+    @app_commands.command(name="nba_week", description="🗓️ Programme NBA des 7 prochains jours")
     async def nba_week(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        games = await get_week_games()
-        by_day: dict[str, list] = {}
-        today = date.today()
-        for i in range(7):
-            by_day[(today + timedelta(days=i)).isoformat()] = []
-        for g in games:
-            d = g.get("_date") or date.today().isoformat()
-            if d in by_day:
-                by_day[d].append(g)
-        embeds = build_weekly_schedule(by_day)
+        schedule = await get_week_schedule()
+        embeds = build_weekly_embeds(schedule)
         await interaction.followup.send(embeds=embeds[:10])
 
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(Match(bot))
+async def setup(bot):
+    await bot.add_cog(MatchCog(bot))
