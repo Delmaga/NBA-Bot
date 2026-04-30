@@ -32,6 +32,13 @@ async def on_ready():
     print(f"  Serveurs : {len(bot.guilds)}")
     print(f"{'='*50}\n")
 
+    # Sync ici = Discord est prêt, application_id connu
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ {len(synced)} slash command(s) synchronisée(s) : {[s.name for s in synced]}")
+    except Exception as e:
+        print(f"❌ Sync commands : {e}")
+
 
 async def main():
     async with bot:
@@ -41,12 +48,6 @@ async def main():
                 print(f"✅ Cog chargé : {cog}")
             except Exception as e:
                 print(f"❌ Cog {cog} : {e}")
-
-        try:
-            synced = await bot.tree.sync()
-            print(f"\n✅ {len(synced)} slash command(s) synchronisée(s)")
-        except Exception as e:
-            print(f"❌ Sync commands : {e}")
 
         await bot.start(TOKEN)
 
