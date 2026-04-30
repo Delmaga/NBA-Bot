@@ -1,6 +1,6 @@
 import discord
 from datetime import datetime, date
-from utils.nba_api import emoji, color, logo, team_name
+from utils.nba_api import color, logo, team_name
 
 NBA_RED  = 0xE8174B
 NBA_BLUE = 0x17408B
@@ -48,8 +48,8 @@ def build_weekly_embeds(schedule: dict[str, list]) -> list[discord.Embed]:
             playoff = g.get("series_text","")
             playoff_txt = f" `{playoff}`" if playoff else ""
             lines.append(
-                f"{emoji(a_abbr)} **{a_abbr}** `{g['away_name']}`  ⚔️  "
-                f"{emoji(h_abbr)} **{h_abbr}** `{g['home_name']}`"
+                f"**{a_abbr}** `{g['away_name']}`  ⚔️  "
+                f"**{h_abbr}** `{g['home_name']}`"
                 f"  —  `{status}`{playoff_txt}"
             )
 
@@ -72,10 +72,10 @@ def build_game_announcement(game: dict) -> discord.Embed:
     embed = discord.Embed(
         title="🏀  MATCH DU JOUR — TONIGHT",
         description=(
-            f"## {emoji(a)}  {game['away_city']} {game['away_name']}"
+            f"## {game['away_city']} {game['away_name']}"
             + (f"  `{game['away_record']}`" if game.get("away_record") else "")
             + f"\n# ⚔️  VS\n"
-            f"## {emoji(h)}  {game['home_city']} {game['home_name']}"
+            f"## {game['home_city']} {game['home_name']}"
             + (f"  `{game['home_record']}`" if game.get("home_record") else "")
             + (f"\n\n> 🏆 **{playoff}**" if playoff else "")
             + f"\n\n> 🕐 **{game['status']}**"
@@ -108,11 +108,11 @@ def build_live_score(game: dict) -> discord.Embed:
     phase = f"🔴 LIVE Q{period} {clock}" if is_live else ("🏁 FINAL" if is_final else f"🕐 {status}")
 
     desc_lines = [
-        f"{'🏆 ' if is_final and a_s > h_s else ''}{emoji(a)}  **{game['away_city']} {game['away_name']}**"
+        f"{'🏆 ' if is_final and a_s > h_s else ''}  **{game['away_city']} {game['away_name']}**"
         + (f"  `{game['away_record']}`" if game.get("away_record") else ""),
         f"# {a_s}",
         "",
-        f"{'🏆 ' if is_final and h_s > a_s else ''}{emoji(h)}  **{game['home_city']} {game['home_name']}**"
+        f"{'🏆 ' if is_final and h_s > a_s else ''}  **{game['home_city']} {game['home_name']}**"
         + (f"  `{game['home_record']}`" if game.get("home_record") else ""),
         f"# {h_s}",
     ]
@@ -142,9 +142,9 @@ def build_boxscore(game: dict, bs: dict) -> list[discord.Embed]:
     header = discord.Embed(
         title=f"📊  FIN DE MATCH  —  {a} @ {h}",
         description=(
-            f"## 🏆 {emoji(winner_abbr)}  {w_name}  **GAGNE**\n"
-            f"# {emoji(a)}  {a_s}   —   {h_s}  {emoji(h)}\n"
-            f"*Défaite de {emoji(loser_abbr)} {l_name}  •  écart : **+{diff} pts***"
+            f"## 🏆 {w_name}  **GAGNE**\n"
+            f"# {a_s}   —   {h_s}\n"
+            f"*Défaite de {l_name}  •  écart : **+{diff} pts***"
             + (f"\n\n> 🏆 **{playoff}**" if playoff else "")
         ),
         color=color(winner_abbr),
@@ -179,7 +179,7 @@ def build_boxscore(game: dict, bs: dict) -> list[discord.Embed]:
         rows.append("*MIN=Minutes PTS=Points REB=Rebonds PD=Passes INT=Interceptions CT=Contres TM=Tirs 3P=3pts*")
 
         e = discord.Embed(
-            title=f"{emoji(abbr)}  {city} {nm}",
+            title=f"  {city} {nm}",
             description="\n".join(rows),
             color=color(abbr),
         )

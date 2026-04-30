@@ -60,14 +60,6 @@ TEAMS = {
 
 TEAM_BY_ABBR = {v["abbr"]: {**v, "id": k} for k, v in TEAMS.items()}
 
-TEAM_EMOJIS = {
-    "ATL":"🦅","BOS":"☘️","BKN":"🕸️","CHA":"🐝","CHI":"🐂","CLE":"⚔️",
-    "DAL":"🤠","DEN":"⛏️","DET":"🔩","GSW":"🌉","HOU":"🚀","IND":"🏎️",
-    "LAC":"⛵","LAL":"👑","MEM":"🐻","MIA":"🔥","MIL":"🦌","MIN":"🐺",
-    "NOP":"🦩","NYK":"🗽","OKC":"⚡","ORL":"✨","PHI":"🔔","PHX":"☀️",
-    "POR":"🌲","SAC":"♛","SAS":"🏴","TOR":"🦖","UTA":"🎵","WAS":"🧙",
-}
-
 TEAM_COLORS = {
     "ATL":0xE03A3E,"BOS":0x007A33,"BKN":0x111111,"CHA":0x1D1160,"CHI":0xCE1141,
     "CLE":0x860038,"DAL":0x00538C,"DEN":0x0E2240,"DET":0xC8102E,"GSW":0x1D428A,
@@ -81,9 +73,6 @@ TEAM_LOGOS = {
     abbr: f"https://cdn.nba.com/logos/nba/{tid}/global/L/logo.svg"
     for tid, d in TEAMS.items() for abbr in [d["abbr"]]
 }
-
-def emoji(abbr: str) -> str:
-    return TEAM_EMOJIS.get(abbr, "🏀")
 
 def color(abbr: str) -> int:
     return TEAM_COLORS.get(abbr, 0xE8174B)
