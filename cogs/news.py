@@ -4,6 +4,7 @@ from discord import app_commands
 import os
 import asyncio
 import random
+from typing import Optional
 
 from utils.news_feed import fetch_all_articles, detect_category
 from utils.ai_summary import summarize

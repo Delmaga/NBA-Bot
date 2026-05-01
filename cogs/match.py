@@ -4,6 +4,7 @@ from discord import app_commands
 from datetime import datetime
 import os
 import asyncio
+from typing import Optional
 
 from utils.nba_api import get_scoreboard, get_boxscore, get_week_schedule
 from utils.formatters import (

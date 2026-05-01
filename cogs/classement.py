@@ -4,6 +4,7 @@ from discord import app_commands
 from datetime import datetime
 import os
 import asyncio
+from typing import Optional
 
 from utils.nba_api import get_standings_regular, get_standings_playoff, get_standings_playin
 from utils.formatters import build_standings_embed
